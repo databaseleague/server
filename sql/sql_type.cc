@@ -2716,7 +2716,7 @@ Type_handler::Column_definition_set_attributes(THD *thd,
                                                column_definition_type_t type)
                                                const
 {
-  def->set_lex_collation(attr.lex_collation());
+  def->set_lex_charset_collation(attr.lex_collation());
   def->set_length_and_dec(attr);
   return false;
 }

@@ -28,6 +28,7 @@
 #include "my_base.h"                   /* ha_rows, ha_key_alg */
 #include <mysql_com.h>                  /* USERNAME_LENGTH */
 #include "sql_bitmap.h"
+#include "lex_charset.h"
 
 struct TABLE;
 class Type_handler;
@@ -599,140 +600,15 @@ public:
 };
 
 
-/*
-  Parse time collation.
-
-  Can be:
-
-  1. Empty (not specified on the column level):
-     CREATE TABLE t1 (a CHAR(10)) CHARACTER SET latin2;        -- (1a)
-     CREATE TABLE t1 (a CHAR(10));                             -- (1b)
-
-  2. Explicitly typed:
-     CREATE TABLE t1 (a CHAR(10) COLLATE latin1_bin);          -- (2a)
-     CREATE TABLE t1 (
-       a CHAR(10) CHARACTER SET latin1 COLLATE latin1_bin);    -- (2b)
-
-  3. Contextually typed:
-     CREATE TABLE t2 (a CHAR(10) BINARY) CHARACTER SET latin2; -- (3a)
-     CREATE TABLE t2 (a CHAR(10) BINARY);                      -- (3b)
-     CREATE TABLE t2 (a CHAR(10) COLLATE DEFAULT)
-       CHARACER SET latin2 COLLATE latin2_bin;                 -- (3c)
-
-  In case of an empty or a contextually typed collation,
-  it is a subject to later resolution, when the context
-  character set becomes known in the end of the CREATE statement:
-  - either after the explicit table level CHARACTER SET, like in (1a,3a,3c)
-  - or by the inhereted database level CHARACTER SET, like in (1b,3b)
-
-  Resolution happens in Type_handler::Column_definition_prepare_stage1().
-*/
-struct Lex_collation_st
-{
-public:
-  enum Type
-  {
-    TYPE_IMPLICIT= 0,
-    TYPE_EXPLICIT= 1,
-    TYPE_CONTEXTUALLY_TYPED= 2
-  };
-protected:
-  CHARSET_INFO *m_collation;
-  Type m_type;
-  static CHARSET_INFO *find_bin_collation(CHARSET_INFO *cs);
-  static CHARSET_INFO *find_default_collation(CHARSET_INFO *cs);
-public:
-  void init()
-  {
-    m_collation= NULL;
-    m_type= TYPE_IMPLICIT;
-  }
-  void set_charset(CHARSET_INFO *cs)
-  {
-    DBUG_ASSERT(cs);
-    m_collation= cs;
-    m_type= TYPE_IMPLICIT;
-  }
-  void set_charset_collate_default(CHARSET_INFO *cs)
-  {
-    DBUG_ASSERT(cs);
-    m_collation= cs;
-    m_type= TYPE_EXPLICIT;
-  }
-  bool set_charset_collate_binary(CHARSET_INFO *cs)
-  {
-    DBUG_ASSERT(cs);
-    if (!(cs= find_bin_collation(cs)))
-      return true;
-    m_collation= cs;
-    m_type= TYPE_EXPLICIT;
-    return false;
-  }
-  bool set_charset_collate_explicit(CHARSET_INFO *cs,
-                                    CHARSET_INFO *cl);
-  void set_collate_default()
-  {
-    m_collation= &my_charset_latin1;
-    m_type= TYPE_CONTEXTUALLY_TYPED;
-  }
-  bool is_contextually_typed_collate_default() const
-  {
-    return m_collation == &my_charset_latin1 &&
-           m_type == TYPE_CONTEXTUALLY_TYPED;
-  }
-  void set_collate_explicit(CHARSET_INFO *cl)
-  {
-    DBUG_ASSERT(cl);
-    m_collation= cl;
-    m_type= TYPE_EXPLICIT;
-  }
-  void set_collate_contextually_typed(CHARSET_INFO *cl)
-  {
-    DBUG_ASSERT(cl);
-    m_collation= cl;
-    m_type= TYPE_CONTEXTUALLY_TYPED;
-  }
-  CHARSET_INFO *collation() const
-  {
-    return m_collation;
-  }
-  Type type() const
-  {
-    return m_type;
-  }
-  bool is_contextually_typed_collation() const
-  {
-    return m_type == TYPE_CONTEXTUALLY_TYPED;
-  }
-  CHARSET_INFO *resolved_to_character_set(CHARSET_INFO *cs) const;
-  bool merge_charset_clause_and_collate_clause(const Lex_collation_st &cl);
-  bool merge_collate_clause_and_collate_clause(const Lex_collation_st &cl);
-};
-
-
-class Lex_collation: public Lex_collation_st
-{
-public:
-  Lex_collation(CHARSET_INFO *collation, Type type)
-  {
-    m_collation= collation;
-    m_type= type;
-  }
-  static Lex_collation national(bool bin_mod)
-  {
-    if (bin_mod)
-      return Lex_collation(&my_charset_utf8mb3_bin, TYPE_EXPLICIT);
-    return Lex_collation(&my_charset_utf8mb3_general_ci, TYPE_IMPLICIT);
-  }
-};
-
-
 struct Lex_length_and_dec_st
 {
+  static constexpr uint collation_type_bits= 2;
+  static_assert(((1<<collation_type_bits)-1) >=
+                Lex_charset_collation_st::TYPE_LAST);
 protected:
   uint32 m_length;
   uint8  m_dec;
-  uint8  m_collation_type:2;
+  uint8  m_collation_type:collation_type_bits;
   bool   m_has_explicit_length:1;
   bool   m_has_explicit_dec:1;
 public:
@@ -798,17 +674,17 @@ public:
   }
   void set(const Type_handler *handler,
            const Lex_length_and_dec_st &length_and_dec,
-           const Lex_collation_st &coll)
+           const Lex_charset_collation_st &coll)
   {
     m_handler= handler;
-    m_charset= coll.collation();
+    m_charset= coll.charset_collation();
     Lex_length_and_dec_st::operator=(length_and_dec);
     m_collation_type= ((uint8) coll.type()) & 0x3;
   }
-  void set(const Type_handler *handler, const Lex_collation_st &coll)
+  void set(const Type_handler *handler, const Lex_charset_collation_st &coll)
   {
     m_handler= handler;
-    m_charset= coll.collation();
+    m_charset= coll.charset_collation();
     Lex_length_and_dec_st::reset();
     m_collation_type= ((uint8) coll.type()) & 0x3;
   }
@@ -833,9 +709,11 @@ public:
   }
   const Type_handler *type_handler() const { return m_handler; }
   CHARSET_INFO *charset() const { return m_charset; }
-  Lex_collation lex_collation() const
+  Lex_charset_collation lex_collation() const
   {
-    return Lex_collation(m_charset, (Lex_collation_st::Type) m_collation_type);
+    return Lex_charset_collation(m_charset,
+                                 (Lex_charset_collation_st::Type)
+                                 m_collation_type);
   }
 };
 
@@ -865,7 +743,8 @@ public:
     m_charset= cs;
     Lex_length_and_dec_st::reset();
   }
-  bool set(int type, const Lex_collation_st &collation, CHARSET_INFO *charset)
+  bool set(int type, const Lex_charset_collation_st &collation,
+           CHARSET_INFO *charset)
   {
     CHARSET_INFO *tmp= collation.resolved_to_character_set(charset);
     if (!tmp)

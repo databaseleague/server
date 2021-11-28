@@ -871,9 +871,9 @@ int Json_table_column::set(THD *thd, enum_type ctype, const LEX_CSTRING &path,
 
 
 int Json_table_column::set(THD *thd, enum_type ctype, const LEX_CSTRING &path,
-                           const Lex_collation_st &cl)
+                           const Lex_charset_collation_st &cl)
 {
-  if (!cl.collation() || cl.is_contextually_typed_collate_default())
+  if (cl.is_empty() || cl.is_contextually_typed_collate_default())
     return set(thd, ctype, path, nullptr);
 
   CHARSET_INFO *tmp;

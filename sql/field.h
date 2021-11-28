@@ -5493,20 +5493,22 @@ public:
 
   bool check_vcol_for_key(THD *thd) const;
 
-  void set_lex_collation(const Lex_collation_st &lc)
+  void set_lex_charset_collation(const Lex_charset_collation_st &lc)
   {
-    charset= lc.collation();
+    charset= lc.charset_collation();
     if (lc.is_contextually_typed_collation())
       flags|= BINCMP_FLAG;
     else
       flags&= ~BINCMP_FLAG;
   }
-  Lex_collation lex_collation() const
+  Lex_charset_collation lex_charset_collation() const
   {
-    return Lex_collation(charset,
-                         flags & BINCMP_FLAG ?
-                         Lex_collation_st::TYPE_CONTEXTUALLY_TYPED :
-                         Lex_collation_st::TYPE_IMPLICIT);
+    return Lex_charset_collation(
+             charset,
+             !charset ? Lex_charset_collation_st::TYPE_EMPTY :
+             flags & BINCMP_FLAG ?
+             Lex_charset_collation_st::TYPE_COLLATE_CONTEXTUALLY_TYPED :
+             Lex_charset_collation_st::TYPE_CHARACTER_SET);
   }
 };
 
