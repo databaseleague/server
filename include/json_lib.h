@@ -258,6 +258,8 @@ int json_read_keyname_chr(json_engine_t *j);
 */
 int json_key_matches(json_engine_t *je, json_string_t *k);
 
+int json_match_first_key(json_engine_t *js, json_engine_t *value);
+
 
 /*
   json_read_value() function parses the JSON value syntax,

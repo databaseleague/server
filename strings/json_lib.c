@@ -1327,6 +1327,18 @@ int json_key_matches(json_engine_t *je, json_string_t *k)
   return json_read_string_const_chr(k);
 }
 
+int json_match_first_key(json_engine_t *js, json_engine_t *value)
+{
+  while (json_read_keyname_chr(js) == 0 && json_read_keyname_chr(value) == 0
+         && js->state == JST_KEY && value->state == JST_KEY)
+  {
+    if (js->s.c_next != value->s.c_next)
+      return 0;
+  }
+
+  return 1;
+}
+
 
 int json_find_path(json_engine_t *je,
                    json_path_t *p, json_path_step_t **p_cur_step,
