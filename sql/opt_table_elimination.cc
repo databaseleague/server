@@ -508,7 +508,7 @@ public:
   */
   MY_BITMAP expr_deps;
   
-  Dep_value_table *create_table_value(TABLE *table);
+  Dep_value_table *create_table_value(TABLE *table, SELECT_LEX *first_select);
   Dep_value_field *get_field_value(Field *field);
 
 #ifndef DBUG_OFF
@@ -851,7 +851,13 @@ bool check_func_dependency(JOIN *join,
   /* Create Dep_value_table objects for all tables we're trying to eliminate */
   if (oj_tbl)
   {
-    if (!dac.create_table_value(oj_tbl->table))
+    auto select_unit= oj_tbl->get_unit();
+    SELECT_LEX *first_select= NULL;
+    if (select_unit) 
+      first_select= oj_tbl->get_unit()->first_select();
+    if (!dac.create_table_value(
+             oj_tbl->table,
+             first_select))
       return FALSE; /* purecov: inspected */
   }
   else
@@ -861,7 +867,7 @@ bool check_func_dependency(JOIN *join,
     {
       if (tbl->table && (tbl->table->map & dep_tables))
       {
-        if (!dac.create_table_value(tbl->table))
+        if (!dac.create_table_value(tbl->table, nullptr))
           return FALSE; /* purecov: inspected */
       }
     }
@@ -1583,7 +1589,9 @@ void add_module_expr(Dep_analysis_context *ctx, Dep_module_expr **eq_mod,
     NULL if out of memory
 */
 
-Dep_value_table *Dep_analysis_context::create_table_value(TABLE *table)
+Dep_value_table *
+Dep_analysis_context::create_table_value(TABLE *table,
+                                         SELECT_LEX *first_select)
 {
   Dep_value_table *tbl_dep;
   if (!(tbl_dep= new Dep_value_table(table)))
@@ -1591,17 +1599,31 @@ Dep_value_table *Dep_analysis_context::create_table_value(TABLE *table)
 
   Dep_module_key **key_list= &(tbl_dep->keys);
   /* Add dependencies for unique keys */
+  uint keyno= 0;
   for (uint i=0; i < table->s->keys; i++)
   {
     KEY *key= table->key_info + i; 
     if (key->flags & HA_NOSAME)
     {
       Dep_module_key *key_dep;
-      if (!(key_dep= new Dep_module_key(tbl_dep, i, key->user_defined_key_parts)))
+      if (!(key_dep= new Dep_module_key(tbl_dep, keyno, key->user_defined_key_parts)))
         return NULL;
       *key_list= key_dep;
       key_list= &(key_dep->next_table_key);
+      keyno++;
     }
+  }
+  if (first_select && first_select->group_list.elements > 0)
+  {
+    // TODO: avoid code duplication
+    Dep_module_key *key_dep;
+    if (!(key_dep= new Dep_module_key(
+                tbl_dep, keyno,
+                first_select->group_list.elements /*key->user_defined_key_parts*/)))
+        return NULL;
+    *key_list= key_dep;
+    key_list= &(key_dep->next_table_key);
+    keyno++;
   }
   return table_deps[table->tablenr]= tbl_dep;
 }
