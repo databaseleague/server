@@ -18447,6 +18447,34 @@ buffer_pool_load_abort(
 	}
 }
 
+static void innodb_log_file_size_update(THD *thd, st_mysql_sys_var*,
+                                        void *var, const void *save)
+{
+  ut_ad(var == &srv_log_file_size);
+  mysql_mutex_unlock(&LOCK_global_system_variables);
+
+  if (high_level_read_only)
+    ib_senderrf(thd, IB_LOG_LEVEL_WARN, ER_READ_ONLY_MODE);
+  else
+  {
+    log_sys.latch.wr_lock(SRW_LOCK_CALL);
+    if (log_sys.resize_in_progress())
+    {
+      log_sys.latch.wr_unlock();
+      push_warning_printf(thd, Sql_condition::WARN_LEVEL_WARN,
+                          ER_WRONG_ARGUMENTS,
+                          "innodb_log_file_size change is already in progress");
+    }
+    else if (!log_sys.resize_start(*static_cast<const ulonglong*>(save)))
+      push_warning_printf(thd, Sql_condition::WARN_LEVEL_WARN,
+                          ER_WRONG_ARGUMENTS,
+                          "failed to prepare for innodb_log_file_size change");
+    else
+      while (log_sys.resize_wait(thd_kill_level(thd)));
+  }
+  mysql_mutex_lock(&LOCK_global_system_variables);
+}
+
 /** Update innodb_status_output or innodb_status_output_locks,
 which control InnoDB "status monitor" output to the error log.
 @param[out]	var	current value
@@ -19236,9 +19264,10 @@ static MYSQL_SYSVAR_SIZE_T(log_buffer_size, log_sys.buf_size,
   NULL, NULL, 16U << 20, 2U << 20, SIZE_T_MAX, 4096);
 
 static MYSQL_SYSVAR_ULONGLONG(log_file_size, srv_log_file_size,
-  PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_READONLY,
+  PLUGIN_VAR_RQCMDARG,
   "Redo log size in bytes.",
-  NULL, NULL, 96 << 20, 4 << 20, std::numeric_limits<ulonglong>::max(), 4096);
+  nullptr, innodb_log_file_size_update,
+  96 << 20, 4 << 20, std::numeric_limits<ulonglong>::max(), 4096);
 
 static MYSQL_SYSVAR_UINT(old_blocks_pct, innobase_old_blocks_pct,
   PLUGIN_VAR_RQCMDARG,

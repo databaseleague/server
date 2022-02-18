@@ -930,6 +930,47 @@ std::pair<lsn_t,mtr_t::page_flush_ahead> mtr_t::do_write(bool ex)
   return finish_write(len, ex);
 }
 
+inline void log_t::resize_write(lsn_t lsn, const byte *end, size_t len,
+                                size_t seq) noexcept
+{
+#ifndef SUX_LOCK_GENERIC
+  ut_ad(latch.is_locked());
+#endif
+
+  if (UNIV_LIKELY_NULL(resize_flush_buf))
+  {
+    // FIXME: write to resize_buf
+  }
+#ifdef HAVE_PMEM
+  else if (UNIV_LIKELY_NULL(resize_buf))
+  {
+    const lsn_t resizing{resize_in_progress()};
+    ut_ad(lsn >= resizing);
+    lsn-= resizing;
+    const size_t cap{resize_target - START_OFFSET};
+    size_t s= START_OFFSET + lsn % cap;
+    if (UNIV_LIKELY(s + len <= resize_target))
+    {
+      memcpy(resize_buf + s, end - len, len);
+      s+= len - seq;
+    }
+    else
+    {
+      memcpy(resize_buf + s, end - len, resize_target - s);
+      memcpy(resize_buf + START_OFFSET, (end - len) - (resize_target - s),
+             len - (resize_target - s));
+      s+= len - seq;
+      if (s >= resize_target)
+        s-= cap;
+    }
+
+    /* Always set the sequence bit. */
+    ut_ad(resize_buf[s] <= 1);
+    resize_buf[s]= 1;
+  }
+#endif
+}
+
 /** Write the mini-transaction log to the redo log buffer.
 @param len   number of bytes to write
 @param ex    whether log_sys.latch is exclusively locked
@@ -1006,8 +1047,11 @@ mtr_t::finish_write(size_t len, bool ex)
     ::memcpy(start.second, tail, size_left);
     ::memcpy(log_sys.buf + log_sys.START_OFFSET, tail + size_left,
              size - size_left);
+    start.second= (log_sys.buf + log_sys.START_OFFSET) + (size - size_left);
   }
 #endif
+
+  log_sys.resize_write(start.first, start.second, len, size);
 
   m_commit_lsn= start.first + len;
   return {start.first, log_close(m_commit_lsn)};

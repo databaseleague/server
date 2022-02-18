@@ -189,6 +189,8 @@ private:
   std::atomic<lsn_t> lsn;
   /** the first guaranteed-durable log sequence number */
   std::atomic<lsn_t> flushed_to_disk_lsn;
+  /** log sequence number when log resizing was initiated, or 0 */
+  std::atomic<lsn_t> resize_lsn;
   /** set when there may be need to flush the log buffer, or
   preflush buffer pool pages, or initiate a log checkpoint.
   This must hold if lsn - last_checkpoint_lsn > max_checkpoint_age. */
@@ -209,10 +211,19 @@ public:
   /** number of std::swap(buf, flush_buf) and writes from buf to log;
   protected by latch.wr_lock() */
   ulint write_to_log;
-  /** innodb_log_buffer_size (size of buf and flush_buf, in bytes) */
+  /** innodb_log_buffer_size (size of buf,flush_buf if !is_pmem(), in bytes) */
   size_t buf_size;
 
 private:
+  /** Log file being constructed during resizing; protected by latch */
+  log_file_t resize_log;
+  /** size of resize_log; protected by latch */
+  lsn_t resize_target;
+  /** Buffer for writing to resize_log; @see buf */
+  byte *resize_buf;
+  /** Buffer for writing to resize_log; @see flush_buf */
+  byte *resize_flush_buf;
+
   /** spin lock protecting lsn, buf_free in append_prepare() */
   MY_ALIGNED(CPU_LEVEL1_DCACHE_LINESIZE) srw_mutex lsn_lock;
 public:
@@ -289,9 +300,41 @@ public:
 
   bool is_opened() const noexcept { return log.is_opened(); }
 
+  /** @return LSN at which log resizing was started and is still in progress
+      @retval 0 if no log resizing is in progress */
+  lsn_t resize_in_progress() const noexcept
+  { return resize_lsn.load(std::memory_order_relaxed); }
+
+  /** Start resizing the log and release the exclusive latch.
+  @param size  requested new file_size
+  @return whether the resizing was started successfully */
+  bool resize_start(os_offset_t size) noexcept;
+
+  /** Wait for log resize to complete.
+  @param interrupted  whether the operation needs to be interrupted
+  @return whether resize is still in progress */
+  bool resize_wait(bool interrupted) noexcept;
+
+  /** Replicate a write to the log.
+  @param lsn  start LSN
+  @param end  end of the mini-transaction
+  @param len  length of the mini-transaction
+  @param seq  offset of the sequence bit from the end */
+  inline void resize_write(lsn_t lsn, const byte *end,
+                           size_t len, size_t seq) noexcept;
+
   /** Rename a log file after resizing.
   @return whether an error occurred */
-  static bool rename_resized() noexcept;
+  static bool resize_rename() noexcept;
+
+#ifdef HAVE_PMEM
+  /** @return pointer for writing to resize_buf
+  @retval nullptr if no PMEM based resizing is active */
+  inline byte *resize_buf_begin(lsn_t lsn) const noexcept;
+  /** @return end of resize_buf */
+  inline const byte *resize_buf_end() const noexcept
+  { return resize_buf + resize_target; }
+#endif
 
   void attach(log_file_t file, os_offset_t size);
 
@@ -299,6 +342,12 @@ public:
 
   /** Calculate the checkpoint safety margins. */
   static void set_capacity();
+
+  /** Write a log file header.
+  @param buf        log header buffer
+  @param lsn        log sequence number corresponding to log_sys.START_OFFSET
+  @param encrypted  whether the log is encrypted */
+  static void header_write(byte *buf, lsn_t lsn, bool encrypted);
 
   lsn_t get_lsn(std::memory_order order= std::memory_order_relaxed) const
   { return lsn.load(order); }

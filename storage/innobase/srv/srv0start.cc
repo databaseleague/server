@@ -252,11 +252,8 @@ err_exit:
 
 /** Rename the redo log file after resizing.
 @return whether an error occurred */
-bool log_t::rename_resized() noexcept
+bool log_t::resize_rename() noexcept
 {
-  ut_ad(!srv_log_file_created);
-  ut_d(srv_log_file_created= true);
-
   std::string old_name{get_log_file_path("ib_logfile101")};
   std::string new_name{get_log_file_path()};
 
@@ -1172,7 +1169,10 @@ dberr_t srv_start(bool create_new_db)
 
 		buf_flush_sync();
 
-		if (log_sys.rename_resized()) {
+		ut_ad(!srv_log_file_created);
+		ut_d(srv_log_file_created= true);
+
+		if (log_sys.resize_rename()) {
 			return(srv_init_abort(DB_ERROR));
 		}
 	} else {
@@ -1374,7 +1374,7 @@ dberr_t srv_start(bool create_new_db)
 
 			err = create_log_file(false, lsn);
 
-			if (err == DB_SUCCESS && log_sys.rename_resized()) {
+			if (err == DB_SUCCESS && log_sys.resize_rename()) {
 				err = DB_ERROR;
 			}
 

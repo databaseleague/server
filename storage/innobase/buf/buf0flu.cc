@@ -1717,9 +1717,20 @@ inline void log_t::write_checkpoint(lsn_t end_lsn) noexcept
   mach_write_to_8(my_assume_aligned<8>(c), next_checkpoint_lsn);
   mach_write_to_8(my_assume_aligned<8>(c + 8), end_lsn);
   mach_write_to_4(my_assume_aligned<4>(c + 60), my_crc32c(0, c, 60));
+
+  lsn_t resizing= resize_lsn.load(std::memory_order_relaxed);
+
 #ifdef HAVE_PMEM
   if (is_pmem())
+  {
+    if (resizing > 1 && resizing <= next_checkpoint_lsn)
+    {
+      memcpy_aligned<64>(resize_buf + CHECKPOINT_1, c, 64);
+      log_sys.header_write(resize_buf, resizing, is_encrypted());
+      pmem_persist(resize_buf, resize_target);
+    }
     pmem_persist(c, 64);
+  }
   else
 #endif
   {
@@ -1727,20 +1738,128 @@ inline void log_t::write_checkpoint(lsn_t end_lsn) noexcept
     latch.wr_unlock();
     /* FIXME: issue an asynchronous write */
     log.write(offset, {c, get_block_size()});
+    if (resizing > 1 && resizing <= next_checkpoint_lsn)
+    {
+      byte *buf= static_cast<byte*>(aligned_malloc(4096, 4096));
+      memset_aligned<4096>(buf, 0, 4096);
+      log_sys.header_write(buf, resizing, is_encrypted());
+      resize_log.write(0, {buf, 4096});
+      aligned_free(buf);
+      resize_log.write(CHECKPOINT_1, {c, get_block_size()});
+      if (srv_file_flush_method != SRV_O_DSYNC)
+        ut_a(resize_log.flush());
+    }
     if (srv_file_flush_method != SRV_O_DSYNC)
       ut_a(log.flush());
     latch.wr_lock(SRW_LOCK_CALL);
     n_pending_checkpoint_writes--;
+    resizing= resize_lsn.load(std::memory_order_relaxed);
   }
 
   ut_ad(!n_pending_checkpoint_writes);
   next_checkpoint_no++;
-  last_checkpoint_lsn= next_checkpoint_lsn;
+  const lsn_t checkpoint_lsn{next_checkpoint_lsn};
+  last_checkpoint_lsn= checkpoint_lsn;
 
   DBUG_PRINT("ib_log", ("checkpoint ended at " LSN_PF ", flushed to " LSN_PF,
-                        next_checkpoint_lsn, get_flushed_lsn()));
+                        checkpoint_lsn, get_flushed_lsn()));
+  lsn_t resizing_completed= 0;
+
+  if (resizing > 1 && resizing <= checkpoint_lsn)
+  {
+    ut_ad(!is_pmem() || !resize_flush_buf);
+    if (!resize_rename())
+    {
+#ifdef HAVE_PMEM
+      if (is_pmem())
+        my_munmap(resize_buf, resize_target);
+      else
+#endif
+      {
+        resize_log.close();
+        ut_free_dodump(resize_buf, buf_size);
+        ut_free_dodump(resize_flush_buf, buf_size);
+      }
+    }
+    else
+    {
+#ifdef HAVE_PMEM
+      if (is_pmem())
+      {
+        my_munmap(buf, file_size);
+        buf= resize_buf;
+      }
+      else
+#endif
+      {
+        log.close();
+        std::swap(log, resize_log);
+        ut_free_dodump(buf, buf_size);
+        ut_free_dodump(flush_buf, buf_size);
+        buf= resize_buf;
+        flush_buf= resize_flush_buf;
+      }
+      srv_log_file_size= resizing_completed= file_size= resize_target;
+      first_lsn= resize_lsn;
+      set_capacity();
+    }
+    ut_ad(!resize_log.is_opened());
+    resize_buf= nullptr;
+    resize_flush_buf= nullptr;
+    resize_target= 0;
+    resize_lsn.store(0, std::memory_order_relaxed);
+  }
 
   latch.wr_unlock();
+
+  if (UNIV_LIKELY(resizing <= 1 || resizing > checkpoint_lsn));
+  else if (resizing_completed)
+    ib::info() << "Resized log to " << ib::bytes_iec{resizing_completed}
+      << "; start LSN=" << resizing;
+  else
+    sql_print_error("InnoDB: Resize of log failed at " LSN_PF,
+                    get_flushed_lsn());
+}
+
+/** Wait for log resize to complete.
+@param interrupted  whether the operation needs to be interrupted
+@return whether resize is still in progress */
+bool log_t::resize_wait(bool interrupted) noexcept
+{
+  if (interrupted)
+  {
+    latch.wr_lock(SRW_LOCK_CALL);
+    if (resize_lsn.exchange(0, std::memory_order_relaxed))
+    {
+      resize_target= 0;
+#ifdef HAVE_PMEM
+      if (resize_buf)
+      {
+        my_munmap(resize_buf, resize_target);
+        resize_buf= nullptr;
+      }
+      else
+#endif
+        resize_log.close();
+      ut_ad(!resize_log.is_opened());
+    }
+    latch.wr_unlock();
+    return false;
+  }
+
+  if (!resize_in_progress())
+    return false;
+
+  timespec abstime;
+  set_timespec(abstime, 5);
+
+  mysql_mutex_lock(&buf_pool.flush_list_mutex);
+  if (buf_pool.get_oldest_modification(LSN_MAX) < resize_in_progress())
+    my_cond_timedwait(&buf_pool.do_flush_list,
+                      &buf_pool.flush_list_mutex.m_mutex, &abstime);
+  mysql_mutex_unlock(&buf_pool.flush_list_mutex);
+
+  return resize_in_progress();
 }
 
 /** Initiate a log checkpoint, discarding the start of the log.
@@ -1758,7 +1877,9 @@ static bool log_checkpoint_low(lsn_t oldest_lsn, lsn_t end_lsn)
   ut_ad(!recv_no_log_write);
 
   if (oldest_lsn == log_sys.last_checkpoint_lsn ||
-      (oldest_lsn == end_lsn && oldest_lsn == log_sys.last_checkpoint_lsn +
+      (oldest_lsn == end_lsn &&
+       !log_sys.resize_in_progress() &&
+       oldest_lsn == log_sys.last_checkpoint_lsn +
        (log_sys.is_encrypted()
         ? SIZE_OF_FILE_CHECKPOINT + 8 : SIZE_OF_FILE_CHECKPOINT)))
   {

@@ -1,0 +1,26 @@
+SET GLOBAL innodb_log_file_size=3145728;
+SHOW VARIABLES LIKE 'innodb_log_file_size';
+Variable_name	Value
+innodb_log_file_size	2097152
+CREATE TABLE t (
+a INT PRIMARY KEY AUTO_INCREMENT,
+b CHAR(255) NOT NULL)
+ENGINE=INNODB;
+INSERT INTO t SELECT NULL, REPEAT('a', 255) FROM seq_1_to_20000;
+# restart: --innodb-log-file-size=3145728
+SHOW VARIABLES LIKE 'innodb_log_file_size';
+Variable_name	Value
+innodb_log_file_size	3145728
+FOUND 1 /InnoDB: innodb_log_file_size changed to 3145728/ in mysqld.1.err
+SET GLOBAL innodb_log_file_size=2097152;
+SHOW VARIABLES LIKE 'innodb_log_file_size';
+Variable_name	Value
+innodb_log_file_size	3145728
+UPDATE t SET b = REPEAT('a', 255);
+# restart
+SHOW VARIABLES LIKE 'innodb_log_file_size';
+Variable_name	Value
+innodb_log_file_size	2097152
+FOUND 1 /InnoDB: innodb_log_file_size changed to 2097152/ in mysqld.1.err
+UPDATE t SET b = REPEAT('a', 255);
+DROP TABLE t;
