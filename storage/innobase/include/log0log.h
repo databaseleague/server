@@ -70,15 +70,23 @@ void log_write_up_to(lsn_t lsn, bool durable,
                      const completion_callback *callback= nullptr);
 
 /** Write to the log file up to the last log entry.
-@param durable  whether to wait for a durable write to complete */
-void log_buffer_flush_to_disk(bool durable= true);
+@param durable  whether to wait for a durable write to complete
+@param wait whether to wait for completion
+*/
+void log_buffer_flush_to_disk(bool durable= true, bool wait=true);
+
+/** Initiate log buffer write/flush */
+static inline void log_buffer_flush_to_disk_async()
+{
+  log_buffer_flush_to_disk(true, false);
+}
 
 
 /** Prepare to invoke log_write_and_flush(), before acquiring log_sys.latch. */
 ATTRIBUTE_COLD void log_write_and_flush_prepare();
 
 /** Durably write the log up to log_sys.get_lsn(). */
-ATTRIBUTE_COLD void log_write_and_flush();
+ATTRIBUTE_COLD lsn_t log_write_and_flush();
 
 /** Make a checkpoint */
 ATTRIBUTE_COLD void log_make_checkpoint();
@@ -141,7 +149,7 @@ public:
 
   dberr_t close() noexcept;
   dberr_t read(os_offset_t offset, span<byte> buf) noexcept;
-  dberr_t write(os_offset_t offset, span<const byte> buf) noexcept;
+  dberr_t write(os_offset_t offset, span<const byte> buf, tpool::aiocb *cb=nullptr) noexcept;
   bool flush() const noexcept { return os_file_flush(m_file); }
 #ifdef HAVE_PMEM
   byte *mmap(bool read_only, const struct stat &st) noexcept;
@@ -431,8 +439,8 @@ public:
   @tparam release_latch whether to invoke latch.wr_unlock()
   @return new write target
   @retval 0 if everything was written */
-  template<bool release_latch> inline lsn_t write_buf() noexcept;
-
+  template<bool release_latch> inline  lsn_t write_buf(bool flush, bool syncio) noexcept;
+  lsn_t complete_write_buf(lsn_t lsn, bool flush) noexcept;
   /** Create the log. */
   void create(lsn_t lsn) noexcept;
 };

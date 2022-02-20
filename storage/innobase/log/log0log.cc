@@ -74,6 +74,34 @@ log_t	log_sys;
 #define LOG_BUF_FLUSH_MARGIN	((4 * 4096) /* cf. log_t::append_prepare() */ \
 				 + (4U << srv_page_size_shift))
 
+/**
+ group commit completion callback used for anything
+ that can run asynchronous
+*/
+static const completion_callback dummy_callback{nullptr, nullptr};
+
+#ifndef DBUG_OFF
+/**
+ Crashing after disk flush requested via dbug_debug flag.
+ flush can be executed by background thread,
+ where DBUG_EXECUTE_IF() does not work, this the value
+ is passed via global variable.
+*/
+static bool crash_after_flush;
+#endif
+
+static lsn_t log_flush();
+static void report_aio_error(const char *text, tpool::aiocb *cb);
+
+/** AIO control block with auxilliary information, for async writing.
+Protected by write_lock.*/
+struct Log_aiocb : tpool::aiocb
+{
+  lsn_t lsn;
+  bool flush;
+};
+static Log_aiocb log_aiocb;
+
 void log_t::set_capacity()
 {
 #ifndef SUX_LOCK_GENERIC
@@ -160,11 +188,31 @@ dberr_t log_file_t::read(os_offset_t offset, span<byte> buf) noexcept
   return os_file_read(IORequestRead, m_file, buf.data(), offset, buf.size());
 }
 
-dberr_t log_file_t::write(os_offset_t offset, span<const byte> buf) noexcept
+dberr_t log_file_t::write(os_offset_t offset, span<const byte> buf,
+                          tpool::aiocb *iocb) noexcept
 {
   ut_ad(is_opened());
-  return os_file_write(IORequestWrite, "ib_logfile0", m_file,
-                       buf.data(), offset, buf.size());
+  if (iocb)
+  {
+    ut_ad(buf.size() < UINT_MAX);
+    iocb->m_fh= m_file;
+    iocb->m_opcode= tpool::aio_opcode::AIO_PWRITE;
+    iocb->m_offset= offset;
+    iocb->m_buffer= (void *) buf.data();
+    iocb->m_len= (unsigned) buf.size();
+    if(srv_thread_pool->submit_io(iocb))
+    {
+      iocb->m_err= IF_WIN(GetLastError(), errno);
+      report_aio_error("submitting asynchronous write to redo log", iocb);
+      return DB_IO_ERROR;
+    }
+    return DB_SUCCESS;
+  }
+  else
+  {
+    return os_file_write_func(IORequestWrite, "ib_logfile0", m_file, buf.data(),
+                         offset, buf.size());
+  }
 }
 
 #ifdef HAVE_PMEM
@@ -328,9 +376,10 @@ void log_t::close_file()
 @param buf    buffer to be written
 @param len    length of data to be written
 @param offset log file offset */
-static void log_write_buf(const byte *buf, size_t len, lsn_t offset)
+static void log_write_buf(const byte *buf, size_t len, lsn_t offset,tpool::aiocb *cb)
 {
-  ut_ad(write_lock.is_owner());
+  ut_ad(cb ? !write_lock.has_owner() : write_lock.is_owner());
+  ut_ad(write_lock.locked());
   ut_ad(!recv_no_log_write);
   ut_d(const size_t block_size_1= log_sys.get_block_size() - 1);
   ut_ad(!(offset & block_size_1));
@@ -341,7 +390,7 @@ static void log_write_buf(const byte *buf, size_t len, lsn_t offset)
   if (UNIV_LIKELY(offset + len <= log_sys.file_size))
   {
 write:
-    log_sys.log.write(offset, {buf, len});
+    log_sys.log.write(offset, {buf, len}, cb);
     return;
   }
 
@@ -519,32 +568,76 @@ inline void log_t::persist(lsn_t lsn) noexcept
 }
 #endif
 
+static void report_aio_error(const char *text, tpool::aiocb *cb)
+{
+  ib::fatal() << "IO Error "
+              << cb->m_err IF_WIN(, << " " << strerror(cb->m_err)) << " "
+              << text << "," << cb->m_len << " bytes at offset "
+              << cb->m_offset;
+}
+
+ lsn_t log_t::complete_write_buf(lsn_t lsn, bool flush) noexcept
+{
+  ut_ad(write_lock.is_owner());
+  ut_ad(flush == flush_lock.is_owner());
+
+  ut_a(lsn >= write_lsn);
+
+  write_lsn= lsn;
+  lsn_t pending_write_lsn= write_lock.release(lsn);
+  lsn_t pending_flush_lsn= flush?log_flush():0;
+  return std::max(pending_write_lsn, pending_flush_lsn);
+}
+
+static void aio_complete_write_buf(void *p)
+{
+  ut_ad(write_lock.locked());
+
+  Log_aiocb *cb= static_cast<Log_aiocb *>(p);
+  if (cb->m_err)
+    report_aio_error("in asynchronous redo log write", cb);
+  auto flush= cb->flush;
+  ut_ad(flush == flush_lock.locked());
+  ut_d(if (flush) flush_lock.set_owner());
+  ut_d(write_lock.set_owner();)
+
+  auto ret_lsn= log_sys.complete_write_buf(cb->lsn, flush);
+  if (ret_lsn)
+  {
+    // prevent stalls
+    log_write_up_to(ret_lsn, flush, &dummy_callback);
+  }
+}
+
+
 /** Write buf to ib_logfile0.
 @tparam release_latch whether to invoke latch.wr_unlock()
 @return lsn of a callback pending on write_lock
 @retval 0 if everything was written
 */
-template<bool release_latch> inline lsn_t log_t::write_buf() noexcept
+template<bool release_latch> inline  lsn_t log_t::write_buf(bool flush ,bool use_sync_io) noexcept
 {
 #ifndef SUX_LOCK_GENERIC
   ut_ad(latch.is_write_locked());
 #endif
   ut_ad(!srv_read_only_mode);
   ut_ad(!is_pmem());
+  ut_ad(write_lock.is_owner());
+  ut_ad(flush == flush_lock.is_owner());
 
   const lsn_t lsn{get_lsn(std::memory_order_relaxed)};
-
+  DBUG_EXECUTE_IF("crash_after_log_write_upto", crash_after_flush= true;);
   if (write_lsn >= lsn)
   {
     if (release_latch)
       latch.wr_unlock();
-    ut_ad(write_lsn == lsn);
+    ut_a(write_lsn == lsn);
+    return complete_write_buf(lsn, flush);
   }
   else
   {
     ut_ad(!recv_no_log_write);
-    write_lock.set_pending(lsn);
-    ut_ad(write_lsn >= get_flushed_lsn());
+    ut_a(write_lsn >= get_flushed_lsn());
     const size_t block_size_1{get_block_size() - 1};
     const lsn_t offset{calc_lsn_offset(write_lsn) & ~block_size_1};
 
@@ -588,17 +681,30 @@ template<bool release_latch> inline lsn_t log_t::write_buf() noexcept
     }
 
     /* Do the write to the log file */
-    log_write_buf(write_buf, length, offset);
-    write_lsn= lsn;
-  }
+    if (use_sync_io)
+    {
+      log_write_buf(write_buf, length, offset, nullptr);
+      return complete_write_buf(lsn, flush);
+    }
 
-  return write_lock.release(lsn);
+    /* Async log IO
+    Note : flush/write lock ownership is going to migrate to a
+    background thread*/
+    ut_d(write_lock.reset_owner());
+    ut_d(if (flush) flush_lock.reset_owner());
+
+    log_aiocb.m_callback= aio_complete_write_buf;
+    log_aiocb.flush= flush;
+    log_aiocb.lsn= lsn;
+    log_write_buf(write_buf, length, offset, &log_aiocb);
+    return 0;
+  }
 }
 
 inline bool log_t::flush(lsn_t lsn) noexcept
 {
   ut_ad(lsn >= get_flushed_lsn());
-  flush_lock.set_pending(lsn);
+  ut_ad(flush_lock.is_owner());
   const bool success{srv_file_flush_method == SRV_O_DSYNC || log.flush()};
   if (UNIV_LIKELY(success))
   {
@@ -609,20 +715,45 @@ inline bool log_t::flush(lsn_t lsn) noexcept
 }
 
 /** Ensure that previous log writes are durable.
-@param lsn  previously written LSN
+@param lsn  current written LSN
 @return new durable lsn target
 @retval 0  if there are no pending callbacks on flush_lock
            or there is another group commit lead.
 */
-static lsn_t log_flush(lsn_t lsn)
+static lsn_t log_flush()
 {
   ut_ad(!log_sys.is_pmem());
+  ut_ad(flush_lock.is_owner());
+  ut_ad(!write_lock.is_owner());
+
+  lsn_t lsn= write_lock.value();
   ut_a(log_sys.flush(lsn));
-  DBUG_EXECUTE_IF("crash_after_log_write_upto", DBUG_SUICIDE(););
+  ut_d(if (crash_after_flush) DBUG_SUICIDE());
   return flush_lock.release(lsn);
 }
 
-static const completion_callback dummy_callback{[](void *) {},nullptr};
+/*
+ Decide about whether to do synchronous IO.
+ Async might not make sense because of the higher latency or CPU
+ overhead in threadpool, or because the file is cached,and say libaio
+ can't do AIO on caches files.
+
+ Async IO apparently makes sense always if the waiter does
+ not care about result (i.e callback with NULL function)
+ 
+ NOTE: currently, async IO is mostly unused, because it turns
+ out to be worse in benchmarks. Perhaps it is just too many threads
+ involved in waking and waiting.
+*/
+static bool use_sync_log_write(bool /* durable */,
+                               const completion_callback *cb)
+{
+  if (!cb)
+    return true;
+  if (!cb->m_callback)
+    return false;
+  return true;
+}
 
 /** Ensure that the log has been written to the log file up to a given
 log entry (such as that of a transaction commit). Start a new write, or
@@ -640,7 +771,7 @@ void log_write_up_to(lsn_t lsn, bool durable,
   {
     /* A non-final batch of recovery is active no writes to the log
     are allowed yet. */
-    ut_a(!callback);
+    ut_a(!callback || !callback->m_callback);
     return;
   }
 
@@ -661,39 +792,43 @@ repeat:
   {
     if (flush_lock.acquire(lsn, callback) != group_commit_lock::ACQUIRED)
       return;
-    flush_lock.set_pending(log_sys.get_lsn());
   }
- 
 
-  lsn_t pending_write_lsn= 0, pending_flush_lsn= 0;
+  lsn_t pending_lsn= 0;
 
   if (write_lock.acquire(lsn, durable ? nullptr : callback) ==
       group_commit_lock::ACQUIRED)
   {
     log_sys.latch.wr_lock(SRW_LOCK_CALL);
-    pending_write_lsn= log_sys.write_buf<true>();
+    bool sync_io= use_sync_log_write(durable, callback);
+    pending_lsn= log_sys.write_buf<true>(durable,sync_io);
+    if (!pending_lsn)
+      return;
   }
 
-  if (durable)
+  if (durable && !pending_lsn)
   {
-    pending_flush_lsn= log_flush(write_lock.value());
+    /* We only get here if flush_lock is acquired, but write_lock
+    is expired, i.e lsn was already written, but not flushed yet.*/
+    ut_ad(write_lock.value() >= lsn);
+    pending_lsn= log_flush();
   }
 
-  if (pending_write_lsn || pending_flush_lsn)
+  if (pending_lsn)
   {
     /* There is no new group commit lead; some async waiters could stall. */
     callback= &dummy_callback;
-    lsn= std::max(pending_write_lsn, pending_flush_lsn);
     goto repeat;
   }
 }
 
 /** Write to the log file up to the last log entry.
 @param durable  whether to wait for a durable write to complete */
-void log_buffer_flush_to_disk(bool durable)
+void log_buffer_flush_to_disk(bool durable, bool wait)
 {
   ut_ad(!srv_read_only_mode);
-  log_write_up_to(log_sys.get_lsn(std::memory_order_acquire), durable);
+  log_write_up_to(log_sys.get_lsn(std::memory_order_acquire), durable,
+                  wait ? nullptr : &dummy_callback);
 }
 
 /** Prepare to invoke log_write_and_flush(), before acquiring log_sys.latch. */
@@ -708,19 +843,19 @@ ATTRIBUTE_COLD void log_write_and_flush_prepare()
          group_commit_lock::ACQUIRED);
 }
 
-/** Durably write the log up to log_sys.get_lsn(). */
-ATTRIBUTE_COLD void log_write_and_flush()
+/** Durably write the log up to log_sys.get_lsn().
+@return pending lsn in group commit wait queue.
+if return != 0, caller must do log_write_up_to to prevent stalls.
+*/
+ATTRIBUTE_COLD lsn_t log_write_and_flush()
 {
   ut_ad(!srv_read_only_mode);
   if (!log_sys.is_pmem())
-  {
-    log_sys.write_buf<false>();
-    log_flush(write_lock.value());
-  }
+    return log_sys.write_buf<false>(true, true);
 #ifdef HAVE_PMEM
-  else
-    log_sys.persist(log_sys.get_lsn());
+  log_sys.persist(log_sys.get_lsn());
 #endif
+  return 0;
 }
 
 /********************************************************************
