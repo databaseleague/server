@@ -23,7 +23,7 @@ set spider_same_server_link= on;
 #
 select @@spider_auto_increment_mode;
 @@spider_auto_increment_mode
--1
+0
 create or replace table auto_test_local.t (id int primary key) engine=InnoDB;
 create or replace table t_sp1 (id int auto_increment, primary key(id desc))
 engine=Spider COMMENT='wrapper "mysql", srv "s_1", table "t"';

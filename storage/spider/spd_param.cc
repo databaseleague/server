@@ -220,7 +220,7 @@ static MYSQL_SYSVAR_INT(
   "Use table charset for remote access",
   NULL,
   NULL,
-  -1,
+  1,
   -1,
   1,
   0
@@ -423,7 +423,7 @@ static MYSQL_THDVAR_LONGLONG(
   "Internal offset", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  0, /* def */
   -1, /* min */
   9223372036854775807LL, /* max */
   0 /* blk */
@@ -448,7 +448,7 @@ static MYSQL_THDVAR_LONGLONG(
   "Internal limit", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  9223372036854775807LL, /* def */
   -1, /* min */
   9223372036854775807LL, /* max */
   0 /* blk */
@@ -473,7 +473,7 @@ static MYSQL_THDVAR_LONGLONG(
   "Number of rows at a select", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  9223372036854775807LL, /* def */
   -1, /* min */
   9223372036854775807LL, /* max */
   0 /* blk */
@@ -499,7 +499,7 @@ static MYSQL_THDVAR_INT(
   "Use offset and limit parameter in SQL for split_read parameter.", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  2, /* def */
   -1, /* min */
   2147483647, /* max */
   0 /* blk */
@@ -524,7 +524,7 @@ static MYSQL_THDVAR_LONGLONG(
   "The limit value for semi_split_read", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  9223372036854775807LL, /* def */
   -1, /* min */
   9223372036854775807LL, /* max */
   0 /* blk */
@@ -550,7 +550,7 @@ static MYSQL_THDVAR_INT(
   "Initial sql string alloc size", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  1024, /* def */
   -1, /* min */
   2147483647, /* max */
   0 /* blk */
@@ -576,7 +576,7 @@ static MYSQL_THDVAR_INT(
   "Reset sql string alloc after execute", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  1, /* def */
   -1, /* min */
   1, /* max */
   0 /* blk */
@@ -602,7 +602,7 @@ static MYSQL_THDVAR_INT(
   "Sprit read mode for multi range", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  100, /* def */
   -1, /* min */
   2147483647, /* max */
   0 /* blk */
@@ -627,7 +627,7 @@ static MYSQL_THDVAR_INT(
   "Max columns for order by", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  32767, /* def */
   -1, /* min */
   32767, /* max */
   0 /* blk */
@@ -773,7 +773,7 @@ static MYSQL_THDVAR_INT(
   "Use different connection if semi_table_lock is enabled", /* comment */
   &spider_param_semi_table_lock_connection_check, /* check */
   NULL, /* update */
-  -1, /* def */
+  1, /* def */
   -1, /* min */
   1, /* max */
   0 /* blk */
@@ -822,7 +822,7 @@ static MYSQL_THDVAR_INT(
   "Lock for select with update", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  1, /* def */
   -1, /* min */
   2, /* max */
   0 /* blk */
@@ -911,7 +911,7 @@ static MYSQL_THDVAR_INT(
   "Bulk insert size", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  16000, /* def */
   -1, /* min */
   2147483647, /* max */
   0 /* blk */
@@ -940,7 +940,7 @@ static MYSQL_THDVAR_INT(
   "The mode of bulk updating and deleting", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  0, /* def */
   -1, /* min */
   2, /* max */
   0 /* blk */
@@ -965,7 +965,7 @@ static MYSQL_THDVAR_INT(
   "Bulk update size", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  16000, /* def */
   -1, /* min */
   2147483647, /* max */
   0 /* blk */
@@ -990,7 +990,7 @@ static MYSQL_THDVAR_INT(
   "Buffer size", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  16000, /* def */
   -1, /* min */
   2147483647, /* max */
   0 /* blk */
@@ -1016,7 +1016,7 @@ static MYSQL_THDVAR_INT(
   "Execute optimize to remote server", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  0, /* def */
   -1, /* min */
   1, /* max */
   0 /* blk */
@@ -1042,7 +1042,7 @@ static MYSQL_THDVAR_INT(
   "Execute optimize to remote server with local", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  0, /* def */
   -1, /* min */
   1, /* max */
   0 /* blk */
@@ -1191,7 +1191,7 @@ static MYSQL_THDVAR_INT(
   "Wait timeout of connecting to remote server", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  6, /* def */
   -1, /* min */
   2147483647, /* max */
   0 /* blk */
@@ -1218,7 +1218,7 @@ static MYSQL_THDVAR_INT(
   "Wait timeout of receiving data from remote server", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  600, /* def */
   -1, /* min */
   2147483647, /* max */
   0 /* blk */
@@ -1245,7 +1245,7 @@ static MYSQL_THDVAR_INT(
   "Wait timeout of sending data to remote server", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  600, /* def */
   -1, /* min */
   2147483647, /* max */
   0 /* blk */
@@ -1276,7 +1276,7 @@ static MYSQL_THDVAR_INT(
   "The retrieval result from a remote server is acquired by acquisition one by one", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  3, /* def */
   -1, /* min */
   3, /* max */
   0 /* blk */
@@ -1301,7 +1301,7 @@ static MYSQL_THDVAR_LONGLONG(
   "Number of records in a page when acquisition one by one", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  1024, /* def */
   -1, /* min */
   9223372036854775807LL, /* max */
   0 /* blk */
@@ -1326,7 +1326,7 @@ static MYSQL_THDVAR_LONGLONG(
   "The limitation of memory size in a page when acquisition one by one", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  10485760, /* def */
   -1, /* min */
   9223372036854775807LL, /* max */
   0 /* blk */
@@ -1352,7 +1352,7 @@ static MYSQL_THDVAR_INT(
   "Use low memory mode when SQL(SELECT) internally issued to a remote server is executed and get a result list", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  1, /* def */
   -1, /* min */
   1, /* max */
   0 /* blk */
@@ -1379,7 +1379,7 @@ static MYSQL_THDVAR_INT(
   "The mode of using columns at select clause", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  1, /* def */
   -1, /* min */
   1, /* max */
   0 /* blk */
@@ -1407,7 +1407,7 @@ static MYSQL_THDVAR_INT(
   "Mode of background search", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  0, /* def */
   -1, /* min */
   3, /* max */
   0 /* blk */
@@ -1433,7 +1433,7 @@ static MYSQL_THDVAR_LONGLONG(
   "Number of first read records when background search is used", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  2, /* def */
   -1, /* min */
   9223372036854775807LL, /* max */
   0 /* blk */
@@ -1459,7 +1459,7 @@ static MYSQL_THDVAR_LONGLONG(
   "Number of second read records when background search is used", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  100, /* def */
   -1, /* min */
   9223372036854775807LL, /* max */
   0 /* blk */
@@ -1485,7 +1485,7 @@ static MYSQL_THDVAR_LONGLONG(
   "Number of first read records", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  0, /* def */
   -1, /* min */
   9223372036854775807LL, /* max */
   0 /* blk */
@@ -1511,7 +1511,7 @@ static MYSQL_THDVAR_LONGLONG(
   "Number of second read records", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  0, /* def */
   -1, /* min */
   9223372036854775807LL, /* max */
   0 /* blk */
@@ -1537,7 +1537,7 @@ static MYSQL_THDVAR_INT(
   "Interval of cardinality confirmation.(second)", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  51, /* def */
   -1, /* min */
   2147483647, /* max */
   0 /* blk */
@@ -1565,7 +1565,7 @@ static MYSQL_THDVAR_INT(
   "Mode of cardinality confirmation.", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  1, /* def */
   -1, /* min */
   3, /* max */
   0 /* blk */
@@ -1594,7 +1594,7 @@ static MYSQL_THDVAR_INT(
   "Cardinality synchronization in partitioned table.", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  0, /* def */
   -1, /* min */
   2, /* max */
   0 /* blk */
@@ -1622,7 +1622,7 @@ static MYSQL_THDVAR_INT(
   "Type of cardinality calculation.", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  2, /* def */
   -1, /* min */
   2, /* max */
   0 /* blk */
@@ -1647,7 +1647,7 @@ static MYSQL_THDVAR_INT(
   "Weight coefficient to calculate effectiveness of index from cardinality of column.", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  2, /* def */
   -1, /* min */
   2147483647, /* max */
   0 /* blk */
@@ -1674,7 +1674,7 @@ static MYSQL_THDVAR_INT(
   "Mode of cardinality confirmation at background.", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  2, /* def */
   -1, /* min */
   2, /* max */
   0 /* blk */
@@ -1700,7 +1700,7 @@ static MYSQL_THDVAR_INT(
   "Interval of table state confirmation.(second)", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  10, /* def */
   -1, /* min */
   2147483647, /* max */
   0 /* blk */
@@ -1727,7 +1727,7 @@ static MYSQL_THDVAR_INT(
   "Mode of table state confirmation.", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  1, /* def */
   -1, /* min */
   2, /* max */
   0 /* blk */
@@ -1756,7 +1756,7 @@ static MYSQL_THDVAR_INT(
   "Table state synchronization in partitioned table.", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  0, /* def */
   -1, /* min */
   2, /* max */
   0 /* blk */
@@ -1784,7 +1784,7 @@ static MYSQL_THDVAR_INT(
   "Mode of table state confirmation at background.", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  2, /* def */
   -1, /* min */
   2, /* max */
   0 /* blk */
@@ -1834,7 +1834,7 @@ static MYSQL_THDVAR_INT(
   "Mode of auto increment.", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  0, /* def */
   -1, /* min */
   3, /* max */
   0 /* blk */
@@ -1927,7 +1927,7 @@ static MYSQL_THDVAR_INT(
   "Execute \"REPLACE\" and \"INSERT IGNORE\" on remote server and avoid duplicate check on local server", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  0, /* def */
   -1, /* min */
   1, /* max */
   0 /* blk */
@@ -2256,7 +2256,7 @@ static MYSQL_THDVAR_INT(
   "Mode of BKA for Spider", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  1, /* def */
   -1, /* min */
   2, /* max */
   0 /* blk */
@@ -2334,7 +2334,7 @@ static MYSQL_THDVAR_INT(
   "Use handler for reading", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  0, /* def */
   -1, /* min */
   3, /* max */
   0 /* blk */
@@ -2360,7 +2360,7 @@ static MYSQL_THDVAR_INT(
   "Read error mode if error", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  0, /* def */
   -1, /* min */
   1, /* max */
   0 /* blk */
@@ -2386,7 +2386,7 @@ static MYSQL_THDVAR_INT(
   "Write error mode if error", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  0, /* def */
   -1, /* min */
   1, /* max */
   0 /* blk */
@@ -2412,7 +2412,7 @@ static MYSQL_THDVAR_INT(
   "Skip generating internal default condition", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  0, /* def */
   -1, /* min */
   1, /* max */
   0 /* blk */
@@ -2440,7 +2440,7 @@ static MYSQL_THDVAR_INT(
   "Skip parallel search by specific conditions", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  0, /* def */
   -1, /* min */
   3, /* max */
   0 /* blk */
@@ -2466,7 +2466,7 @@ static MYSQL_THDVAR_LONGLONG(
   "Send 'ORDER BY' and 'LIMIT' to remote server directly", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  9223372036854775807LL, /* def */
   -1, /* min */
   9223372036854775807LL, /* max */
   0 /* blk */
@@ -2492,7 +2492,7 @@ static MYSQL_THDVAR_INT(
   "Read only", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  0, /* def */
   -1, /* min */
   1, /* max */
   0 /* blk */
@@ -2710,7 +2710,7 @@ static MYSQL_THDVAR_INT(
   "Read casually if it is possible", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  0, /* def */
   -1, /* min */
   63, /* max */
   0 /* blk */
@@ -2753,7 +2753,7 @@ static MYSQL_THDVAR_INT(
   "The type of delete_all_rows", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  1, /* def */
   -1, /* min */
   1, /* max */
   0 /* blk */
@@ -2779,7 +2779,7 @@ static MYSQL_THDVAR_INT(
   "The type of temporary table name for bka", /* comment */
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  0, /* def */
   -1, /* min */
   1, /* max */
   0 /* blk */
@@ -2831,7 +2831,7 @@ static MYSQL_SYSVAR_INT(
   "Store last sts result into system table",
   NULL,
   NULL,
-  -1,
+  1,
   -1,
   1,
   0
@@ -2858,7 +2858,7 @@ static MYSQL_SYSVAR_INT(
   "Store last crd result into system table",
   NULL,
   NULL,
-  -1,
+  1,
   -1,
   1,
   0
@@ -2885,7 +2885,7 @@ static MYSQL_SYSVAR_INT(
   "Load sts from system table at startup",
   NULL,
   NULL,
-  -1,
+  1,
   -1,
   1,
   0
@@ -2912,7 +2912,7 @@ static MYSQL_SYSVAR_INT(
   "Load crd from system table at startup",
   NULL,
   NULL,
-  -1,
+  1,
   -1,
   1,
   0
@@ -3080,7 +3080,7 @@ static MYSQL_THDVAR_INT(
   "Use columns in select clause strictly for group by clause",
   NULL, /* check */
   NULL, /* update */
-  -1, /* def */
+  1, /* def */
   -1, /* min */
   1, /* max */
   0 /* blk */
