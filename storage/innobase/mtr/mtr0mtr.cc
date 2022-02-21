@@ -939,11 +939,13 @@ inline void log_t::resize_write(lsn_t lsn, const byte *end, size_t len,
 
   if (UNIV_LIKELY_NULL(resize_flush_buf))
   {
+    end+= 4 - len;
     // FIXME: write to resize_buf
   }
 #ifdef HAVE_PMEM
   else if (UNIV_LIKELY_NULL(resize_buf))
   {
+    end+= 4 - len;
     const lsn_t resizing{resize_in_progress()};
     ut_ad(lsn >= resizing);
     lsn-= resizing;
@@ -951,13 +953,13 @@ inline void log_t::resize_write(lsn_t lsn, const byte *end, size_t len,
     size_t s= START_OFFSET + lsn % cap;
     if (UNIV_LIKELY(s + len <= resize_target))
     {
-      memcpy(resize_buf + s, end - len, len);
+      memcpy(resize_buf + s, end, len);
       s+= len - seq;
     }
     else
     {
-      memcpy(resize_buf + s, end - len, resize_target - s);
-      memcpy(resize_buf + START_OFFSET, (end - len) - (resize_target - s),
+      memcpy(resize_buf + s, end, resize_target - s);
+      memcpy(resize_buf + START_OFFSET, end - (resize_target - s),
              len - (resize_target - s));
       s+= len - seq;
       if (s >= resize_target)

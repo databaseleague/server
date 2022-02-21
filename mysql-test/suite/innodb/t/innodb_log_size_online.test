@@ -19,7 +19,7 @@ INSERT INTO t SELECT NULL, REPEAT('a', 255) FROM seq_1_to_20000;
 --source include/restart_mysqld.inc
 
 SHOW VARIABLES LIKE 'innodb_log_file_size';
-let SEARCH_PATTERN = InnoDB: innodb_log_file_size changed to 4194304;
+let SEARCH_PATTERN = InnoDB: Resized log to 4\\.000MiB;
 --source include/search_pattern_in_file.inc
 
 SET GLOBAL innodb_log_file_size=5242880;
@@ -31,7 +31,7 @@ WHERE variable_name = 'innodb_log_file_size';
 --source include/restart_mysqld.inc
 
 SHOW VARIABLES LIKE 'innodb_log_file_size';
-let SEARCH_PATTERN = InnoDB: innodb_log_file_size changed to 5242880;
+let SEARCH_PATTERN = InnoDB: Resized log to 5\\.000MiB;
 --source include/search_pattern_in_file.inc
 
 DROP TABLE t;

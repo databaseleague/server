@@ -1768,7 +1768,7 @@ inline void log_t::write_checkpoint(lsn_t end_lsn) noexcept
   if (resizing > 1 && resizing <= checkpoint_lsn)
   {
     ut_ad(!is_pmem() || !resize_flush_buf);
-    if (!resize_rename())
+    if (resize_rename())
     {
 #ifdef HAVE_PMEM
       if (is_pmem())
@@ -1788,6 +1788,7 @@ inline void log_t::write_checkpoint(lsn_t end_lsn) noexcept
       {
         my_munmap(buf, file_size);
         buf= resize_buf;
+        buf_free= START_OFFSET + (get_lsn() - resizing);
       }
       else
 #endif
@@ -1800,7 +1801,7 @@ inline void log_t::write_checkpoint(lsn_t end_lsn) noexcept
         flush_buf= resize_flush_buf;
       }
       srv_log_file_size= resizing_completed= file_size= resize_target;
-      first_lsn= resize_lsn;
+      first_lsn= resizing;
       set_capacity();
     }
     ut_ad(!resize_log.is_opened());
